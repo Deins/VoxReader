@@ -3,6 +3,8 @@
 #include <iostream>
 #include <vector>
 #include <iomanip>
+#include <algorithm>
+#include <tuple>
 
 namespace jim {
 
@@ -127,10 +129,22 @@ std::vector<RGBA> VoxReader::DEFAULT_PALETTE = makePalette(
 	0xff880000, 0xff770000, 0xff550000, 0xff440000, 0xff220000, 0xff110000, 0xffeeeeee, 0xffdddddd, 0xffbbbbbb, 0xffaaaaaa, 0xff888888, 0xff777777, 0xff555555, 0xff444444, 0xff222222, 0xff111111
 );
 
+VoxReader::~VoxReader() {
+	if((palette != nullptr) && (palette != &DEFAULT_PALETTE)) {
+		delete palette;
+	}
+}
+
 void VoxReader::load(std::istream &s) {
 
 	if(!s) {
 		throw Exception("Cannot read from stream");
+	}
+
+	// Reset current state:
+	models.clear();
+	if(palette != &DEFAULT_PALETTE) {
+		delete palette;
 	}
 
 	// Check for the magic string "VOX ":
@@ -147,7 +161,6 @@ void VoxReader::load(std::istream &s) {
 
 	// Read main chunk:
 	Chunk main(s);
-	main.print(0, std::cout);
 
 	// Create models based on chunk tree:
 	uint32_t modelCount;
@@ -204,6 +217,94 @@ void VoxReader::print(std::ostream & s) {
 		std::cout << "  ";
 	}
 	std::cout << std::endl;
+}
+
+std::vector<std::vector<Voxel *>> VoxReader::view2d(const Viewport2d viewport, uint8_t flags, uint32_t modelIndex) const {
+
+	std::vector<std::vector<Voxel *>> view;
+	const Model &model = models[modelIndex];
+
+	view.resize(model.sizeX);
+	for(auto &xRow : view) {
+		xRow.resize(model.sizeZ);
+	}
+
+	auto comparator = [&] (uint32_t vz, uint32_t vzOther) {
+
+		if(flags & FROM_BEHIND) {
+			// -> Greater vZ-values are nearer
+			return vz > vzOther;
+		}
+		else {
+			// -> Lower vZ-values are nearer
+			return vz < vzOther;
+		}
+	};
+
+	for(auto voxel : model.voxels) {
+
+		uint8_t vx, vy, vz, vzOther;
+
+		auto invertUp = [&flags] (uint32_t v, uint32_t max) {
+			return flags & INVERT_UP ? max - v - 1 : v;
+		};
+
+		auto fromBehind = [&flags] (uint32_t v, uint32_t max) {
+			return flags & FROM_BEHIND ? max - v - 1 : v;
+		};
+
+		switch(viewport) {
+			case XZ:
+				vx = fromBehind(voxel.x, model.sizeX);
+				vy = invertUp(voxel.z, model.sizeZ);
+				vz = voxel.y;
+				break;
+
+			case XY:
+				vx = fromBehind(voxel.x, model.sizeX);
+				vy = invertUp(voxel.y, model.sizeY);
+				vz = voxel.z;
+				break;
+
+			case YZ:
+				vx = fromBehind(voxel.y, model.sizeY);
+				vy = invertUp(voxel.z, model.sizeZ);
+				vz = voxel.x;
+				break;
+
+			default:
+				throw Exception("Unkown 2D viewport");
+		}
+
+		if(flags & SWAP_AXIS) {
+			std::swap(vx, vy);
+		}
+
+		if(view[vx][vy] == nullptr) {
+			// There's no voxel yet:
+			view[vx][vy] = &voxel;
+		}
+		else {
+			switch(viewport) {
+				case XZ:
+					vzOther = view[vx][vy]->y;
+					break;
+				case XY:
+					vzOther = view[vx][vy]->z;
+					break;
+				case YZ:
+					vzOther = view[vx][vy]->x;
+					break;
+			}
+
+			if(comparator(vz, vzOther)) {
+				// Current voxel is nearer than the already stored one:
+				view[vx][vy] = &voxel;
+			}
+		}
+	}
+
+	return std::move(view);
 }
 
 //////////////////////////////////////////////////////////////////////////////
