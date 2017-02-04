@@ -6,7 +6,9 @@
 
 namespace jim {
 
-typedef unsigned char byte;
+//////////////////////////////////////////////////////////////////////////////
+// UTILITIES
+//////////////////////////////////////////////////////////////////////////////
 
 static int readInt(std::istream &s) {
 	uint32_t integer;
@@ -27,8 +29,26 @@ static int readInt(const uint8_t *bytearray) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// CHUNK
+//////////////////////////////////////////////////////////////////////////////
 
-Chunk::Chunk(std::istream &s, int *byteOffset) {
+/**
+ * Chunks are generated while loading voxel data and are discarded
+ * when loading is finished.
+ * Due to the reason that this class is not supposed to be used by the user,
+ * it is defined privately.
+*/
+struct VoxReader::Chunk {
+	Chunk(std::istream &s, int *byteOffset = nullptr);
+
+	void print(int indent, std::ostream &s) const;
+
+	char id[5];
+	std::vector<uint8_t> content;
+	std::vector<Chunk> children;
+};
+
+VoxReader::Chunk::Chunk(std::istream &s, int *byteOffset) {
 	if(byteOffset == nullptr) {
 		int rootByte = 0;
 		byteOffset = &rootByte;
@@ -58,7 +78,7 @@ Chunk::Chunk(std::istream &s, int *byteOffset) {
 	*byteOffset += childrenSize;
 }
 
-void Chunk::print(int indent, std::ostream &s) const {
+void VoxReader::Chunk::print(int indent, std::ostream &s) const {
 	static const int INDENT_LENGTH = 4;
 	std::string tab(indent * INDENT_LENGTH, ' ');
 	s << tab.c_str() << '[' << id << ']' << std::endl;
@@ -80,9 +100,11 @@ void Chunk::print(int indent, std::ostream &s) const {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// VOX-READER
+//////////////////////////////////////////////////////////////////////////////
 
 template<typename... C>
-static std::vector<RGBA> makePalette(C... colors) {
+static inline std::vector<RGBA> makePalette(C... colors) {
 	return std::vector<RGBA>{ (RGBA(colors))... };
 }
 
@@ -107,7 +129,7 @@ std::vector<RGBA> VoxReader::DEFAULT_PALETTE = makePalette(
 
 void VoxReader::load(std::istream &s) {
 
-	if(!s.good()) {
+	if(!s) {
 		throw Exception("Cannot read from stream");
 	}
 
@@ -154,13 +176,8 @@ void VoxReader::load(std::istream &s) {
 		else if(!strcmp(iter->id, "RGBA")) {
 			auto rgbaChunkIter = iter++;
 			palette = new std::vector<RGBA>;
-			//palette->resize(256);
-			//memcpy(&(*palette)[0], &rgbaChunkIter->content[0], 4 * 256);
-			for(int i = 0; i < 256; i++) {
-				palette->push_back(
-					RGBA(reinterpret_cast<uint32_t *>(&rgbaChunkIter->content[i * 4]))
-				);
-			}
+			palette->resize(256);
+			memcpy(&(*palette)[0], &rgbaChunkIter->content[0], 4 * 256);
 		}
 	}
 }
@@ -190,14 +207,18 @@ void VoxReader::print(std::ostream & s) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// VOXEL
+//////////////////////////////////////////////////////////////////////////////
 
 Voxel::Voxel(uint8_t x, uint8_t y, uint8_t z, uint8_t colorIndex)
 	: x(x), y(y), z(z), colorIndex(colorIndex)
 {}
 
 //////////////////////////////////////////////////////////////////////////////
+// MODEL
+//////////////////////////////////////////////////////////////////////////////
 
-Model::Model(const Chunk &sizeChunk, const Chunk &xyziChunk) {
+Model::Model(const VoxReader::Chunk &sizeChunk, const VoxReader::Chunk &xyziChunk) {
 
 	// Size:
 	sizeX = readInt(&sizeChunk.content[0]);
@@ -220,6 +241,8 @@ Model::Model(const Chunk &sizeChunk, const Chunk &xyziChunk) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// RGBA
+//////////////////////////////////////////////////////////////////////////////
 	
 RGBA::RGBA() {
 	a = 0;
@@ -229,11 +252,11 @@ RGBA::RGBA() {
 }
 
 RGBA::RGBA(uint32_t color) {
-	unzip(color);
+	unpack(color);
 }
 
 RGBA::RGBA(uint32_t *color) {
-	unzip(*color);
+	unpack(*color);
 }
 
 RGBA::RGBA(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
@@ -241,19 +264,19 @@ RGBA::RGBA(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
 {}
 
 void RGBA::print(std::ostream & s) const {
-	s << std::hex << std::noshowbase << std::setw(8) << std::setfill('0') << zip();
+	s << std::hex << std::noshowbase << std::setw(8) << std::setfill('0') << pack();
 }
 
-uint32_t RGBA::zip() const {
+uint32_t RGBA::pack() const {
 	uint32_t ret =  (a << 24) | (r << 16) | (g << 8) | b;
 	return ret;
 }
 
-void RGBA::unzip(uint32_t color) {
+void RGBA::unpack(uint32_t color) {
 	a = (color & 0xFF000000) >> 24;
 	r = (color & 0x00FF0000) >> 16;
 	g = (color & 0x0000FF00) >> 8;
 	b = color & 0x000000FF;
 }
 
-}
+} // namespace jim
