@@ -9,3 +9,5 @@ but ignores materials if present.
 
 The loader is intended to be used in my further projects, like my voxel-fractal generator.
 Therefore, further development is planned.
+
+Vox-file format spec: https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox.txt
