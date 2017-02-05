@@ -3,7 +3,8 @@
 #include <vector>
 #include <fstream>
 
-#include "VoxReader.h"
+#define JIM_VOXREADER_IMPLEMENTATION
+#include "VoxReader.hpp"
 
 int main() {
 	using namespace jim;

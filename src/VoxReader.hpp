@@ -1,10 +1,122 @@
-#include "VoxReader.h"
+#pragma once
+
+#include <istream>
+#include <vector>
+
+namespace jim {
+
+/**
+ * Represents a RGBA color.
+ * A packed color is saved into a 4-byte unsigned integer in the format ARGB.
+*/
+struct RGBA {
+	RGBA();
+	RGBA(uint32_t color);
+	RGBA(uint32_t *color);
+	RGBA(uint8_t a, uint8_t r, uint8_t g, uint8_t b);
+
+	void print(std::ostream &s) const;
+
+	uint32_t pack() const;
+	void unpack(uint32_t color);
+
+	uint8_t r, g, b, a;
+};
+
+/**
+ * Represents a single voxel.
+*/
+class Voxel {
+public:
+	Voxel(uint8_t x, uint8_t y, uint8_t z, uint8_t colorIndex);
+	uint8_t x, y, z, colorIndex;
+};
+
+class Model;
+
+/**
+ * Contains all models, the palette and materials from a voxel source.
+*/
+class VoxReader {
+public:
+
+	struct Chunk;
+
+	/**
+	 * All exceptions thrown by this library are of this type.
+	*/
+	class Exception : std::runtime_error {
+		using std::runtime_error::runtime_error;
+	};
+
+	/**
+	 * Deallocates the palette if not default.
+	*/
+	~VoxReader();
+
+	/**
+	 * Read the vox-data from the given input stream and stores the read objects.
+	 * Discards any objects currently hold.
+	*/
+	void load(std::istream &s);
+
+	/**
+	 * Print the vox-reader's members to the given output stream.
+	*/
+	void print(std::ostream &s);
+
+	static const uint8_t INVERT_UP = 0x1;
+	static const uint8_t FROM_BEHIND = 0x2;
+	static const uint8_t SWAP_AXIS = 0x4;
+
+	enum Viewport2d {
+		XZ, XY, YZ
+	};
+
+	/**
+	 * Create a 2D array of voxel pointers in a way they would be seen if looked from a specific camera position.
+	 * @param[in] viewport   Model side to be looked at.
+	 * @param[in] flags      Optional flags, modifying the order the voxels appear in the returned array. Possible values are:
+	 *                       Flag        | Behaviour
+	 *                       ------------|-------------------------------------------------------------------------------------
+	 *                       INVERT_UP   | Invert voxels along the up axis. The lowest voxel will be seen as the highest voxel.
+	 *                       FROM_BEHIND | The layer to be looking at is seen from the back side.
+	 *                       SWAP_AXIS   | The up and row axis are swapped.
+	 * @param[in] modelIndex Index of model which voxels to be looking at.
+	*/
+	std::vector<std::vector<Voxel *>> view2d(const Viewport2d viewport, uint8_t flags = 0, uint32_t modelIndex = 0) const;
+
+	/**
+	 * If a vox-data does not specifiy a palette, this default palette is used.
+	 * The colors are taken from: https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox.txt#L97
+	*/
+	static std::vector<RGBA> DEFAULT_PALETTE;
+
+private:
+
+	std::vector<Model> models;
+	std::vector<RGBA> *palette = &DEFAULT_PALETTE;
+
+};
+
+/**
+ * Represents a single model, which has its specific size and a list of voxels.
+*/
+class Model {
+public:
+
+	Model(const VoxReader::Chunk &sizeChunk, const VoxReader::Chunk &xyziChunk);
+
+	uint32_t sizeX, sizeY, sizeZ;
+	std::vector<Voxel> voxels;
+};
+
+}
+
+#ifdef JIM_VOXREADER_IMPLEMENTATION
 
 #include <iostream>
-#include <vector>
 #include <iomanip>
-#include <algorithm>
-#include <tuple>
 
 namespace jim {
 
@@ -35,10 +147,10 @@ static int readInt(const uint8_t *bytearray) {
 //////////////////////////////////////////////////////////////////////////////
 
 /**
- * Chunks are generated while loading voxel data and are discarded
- * when loading is finished.
- * Due to the reason that this class is not supposed to be used by the user,
- * it is defined privately.
+* Chunks are generated while loading voxel data and are discarded
+* when loading is finished.
+* Due to the reason that this class is not supposed to be used by the user,
+* it is defined privately.
 */
 struct VoxReader::Chunk {
 	Chunk(std::istream &s, int *byteOffset = nullptr);
@@ -170,8 +282,7 @@ void VoxReader::load(std::istream &s) {
 	if(!strcmp(pack.id, "PACK")) {
 		modelCount = readInt(&pack.content[0]);
 		iter++;
-	}
-	else {
+	} else {
 		// Has no 'PACK' spec => 1 model:
 		modelCount = 1;
 	}
@@ -234,8 +345,7 @@ std::vector<std::vector<Voxel *>> VoxReader::view2d(const Viewport2d viewport, u
 		if(flags & FROM_BEHIND) {
 			// -> Greater vZ-values are nearer
 			return vz > vzOther;
-		}
-		else {
+		} else {
 			// -> Lower vZ-values are nearer
 			return vz < vzOther;
 		}
@@ -283,8 +393,7 @@ std::vector<std::vector<Voxel *>> VoxReader::view2d(const Viewport2d viewport, u
 		if(view[vx][vy] == nullptr) {
 			// There's no voxel yet:
 			view[vx][vy] = &voxel;
-		}
-		else {
+		} else {
 			switch(viewport) {
 				case XZ:
 					vzOther = view[vx][vy]->y;
@@ -312,8 +421,7 @@ std::vector<std::vector<Voxel *>> VoxReader::view2d(const Viewport2d viewport, u
 //////////////////////////////////////////////////////////////////////////////
 
 Voxel::Voxel(uint8_t x, uint8_t y, uint8_t z, uint8_t colorIndex)
-	: x(x), y(y), z(z), colorIndex(colorIndex)
-{}
+	: x(x), y(y), z(z), colorIndex(colorIndex) {}
 
 //////////////////////////////////////////////////////////////////////////////
 // MODEL
@@ -344,7 +452,7 @@ Model::Model(const VoxReader::Chunk &sizeChunk, const VoxReader::Chunk &xyziChun
 //////////////////////////////////////////////////////////////////////////////
 // RGBA
 //////////////////////////////////////////////////////////////////////////////
-	
+
 RGBA::RGBA() {
 	a = 0;
 	r = 0;
@@ -361,15 +469,14 @@ RGBA::RGBA(uint32_t *color) {
 }
 
 RGBA::RGBA(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
-	: a(a), r(r), g(g), b(b)
-{}
+	: a(a), r(r), g(g), b(b) {}
 
 void RGBA::print(std::ostream & s) const {
 	s << std::hex << std::noshowbase << std::setw(8) << std::setfill('0') << pack();
 }
 
 uint32_t RGBA::pack() const {
-	uint32_t ret =  (a << 24) | (r << 16) | (g << 8) | b;
+	uint32_t ret = (a << 24) | (r << 16) | (g << 8) | b;
 	return ret;
 }
 
@@ -381,3 +488,5 @@ void RGBA::unpack(uint32_t color) {
 }
 
 } // namespace jim
+
+#endif
